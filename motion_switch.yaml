@@ -1,0 +1,134 @@
+blueprint:
+  name: Motion-activated Switch
+  description: Turn on a switch when motion is detected.
+  domain: automation
+  author: Luca Petruzziello
+  input:
+    motion_entity:
+      name: Motion Sensor
+      selector:
+        entity:
+          filter:
+            device_class: motion
+            domain: binary_sensor
+    switch_target:
+      name: Switch
+      selector:
+        target:
+          entity:
+            domain: switch
+    # illuminance
+    motion_illuminance:
+      name: Motion Sensor Illuminance
+      selector:
+        entity:
+          filter:
+            device_class: illuminance
+            domain: sensor
+    illuminance_value:
+      name: Min. Illuminance
+      description: Minimun level of illuminance to trigger the switch
+      default: 55
+      selector:
+        number:
+          min: 0
+          max: 500
+          unit_of_measurement: lux
+    include_illuminance:
+      name: Use the Illuminance Option (Optional)
+      description: Include the Illuminance value to trigger the switch
+      default: illuminance_disabled
+      selector:
+        select:
+          options:
+            - label: Enable the illuminance option
+              value: "illuminance_enabled"
+            - label: Disable the illuminance option
+              value: "illuminance_disabled"
+    # sun
+    include_sun:
+      name: Use The Sun Option (Optional)
+      description: This is used for adding a trigger to work when the Sun elevation crosses over its elevation value.
+      default: sun_disabled
+      selector:
+        select:
+          options:
+            - label: Enable the sun option
+              value: "sun_enabled"
+            - label: Disable the sun option
+              value: "sun_disabled"
+    sun_elevation:
+      name: Sun Elevation
+      description: This is the angle between the sun and the horizon. Negative values mean the sun is BELOW the horizon. Guide is -1.5 (dusk) and -4.0 (dawn).
+      default: -1.5
+      selector:
+        number:
+          min: -10
+          max: 5
+          step: 0.5
+          unit_of_measurement: degrees
+    # no motion delay
+    no_motion_wait:
+      name: Wait time
+      description: Time to leave the light on after last motion is detected.
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+
+# If motion is detected within the delay,
+# we restart the script.
+mode: restart
+max_exceeded: silent
+
+
+variables:
+  motion_iluminance: !input motion_illuminance
+  illuminance_value: !input illuminance_value
+  include_sun: !input include_sun
+  include_illuminance: !input include_illuminance
+
+trigger:
+  - platform: state
+    id: "t_on"
+    entity_id: !input motion_entity
+    from: "off"
+    to: "on"
+  - platform: state
+    id: "t_off"
+    entity_id: !input motion_entity
+    from: "on"
+    to: "off"
+    for: !input no_motion_wait
+
+condition:
+  - condition: or
+    conditions:
+      - "{{ include_illuminance == 'illuminance_disabled' }}"
+      - "{{ include_illuminance == 'illuminance_enabled' and (states[motion_iluminance].state | int < illuminance_value | int) }}"
+  - condition: or
+    conditions:
+      - "{{ include_sun == 'sun_disabled' }}"
+      - "{{ (include_sun == 'sun_enabled') and (state_attr('sun.sun','elevation') <= sun_elevation | float(90)) }}"
+      - "{{ (include_sun == 'sun_enabled') and (state_attr('sun.sun','elevation') >= sun_elevation | float(90)) }}"
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - 't_off'
+        sequence:
+          - alias: 'Turn off'
+            service: switch.turn_off
+            target: !input switch_target
+      - conditions:
+          - condition: trigger
+            id:
+              - 't_on'
+        sequence:
+          - alias: 'Turn on'
+            service: switch.turn_on
+            target: !input switch_target
